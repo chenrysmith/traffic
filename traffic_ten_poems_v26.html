@@ -1,0 +1,1138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TRAFFIC — composite snapshot</title>
+<style>
+  :root { --bg:#e9e7e0; --ink:#171717; --line:rgba(23,23,23,.24); }
+  * { box-sizing:border-box; }
+  html,body { margin:0; min-height:100%; background:var(--bg); color:var(--ink); }
+  body { overflow:hidden; font-family:Georgia,"Times New Roman",serif; }
+
+  .traffic-page { width:100vw;height:100vh;min-height:620px;position:relative;overflow:hidden;background:var(--bg); }
+  .traffic-title h1 { margin:0;font-size:clamp(2rem,6vw,5rem);font-weight:400;letter-spacing:.08em; }
+
+  .traffic-field {
+    position:absolute; inset:12px;
+    display:grid; grid-template-columns:repeat(5,1fr);
+    grid-template-rows:repeat(4,1fr); gap:12px;
+  top:12%;height:84%;}
+
+  .traffic-block {
+    position:relative;overflow:hidden;border:1px solid var(--line);
+    background:rgba(255,255,255,.16);cursor:crosshair;
+  }
+  .b1{grid-column:1/3;grid-row:1}.b2{grid-column:3/6;grid-row:1}
+  .b3{grid-column:1;grid-row:2}.b4{grid-column:2/4;grid-row:2}
+  .b5{grid-column:4/6;grid-row:2/4}.b6{grid-column:1/3;grid-row:3}
+  .b7{grid-column:3;grid-row:3}.b8{grid-column:1/3;grid-row:4}
+  .b9{grid-column:3/5;grid-row:4}.b10{grid-column:5;grid-row:4}
+
+  .traffic-label {
+    position:absolute;z-index:5;top:8px;left:10px;
+    font:10px/1 Arial,sans-serif;letter-spacing:.12em;text-transform:uppercase;
+    opacity:.55;pointer-events:none;
+  }
+  .traffic-viewport { position:absolute;inset:0;overflow:hidden; }
+  .traffic-track { position:absolute;display:flex;will-change:transform;pointer-events:none; }
+  .horizontal .traffic-track { top:50%;left:0;white-space:nowrap;align-items:center; }
+  .vertical .traffic-track { left:50%;top:0;flex-direction:column;align-items:center;white-space:nowrap; }
+  .traffic-segment {
+    flex:none;font-size:clamp(1.65rem,2.7vw,2.8rem);line-height:1;font-weight:400;
+  }
+  .vertical .traffic-segment { display:flex;flex-direction:column;align-items:center;gap:0; }
+  .word { display:block;margin:0;padding:0; }
+
+  /* The hidden composite only appears while the title is hovered. */
+  .composite {
+    position:absolute;z-index:25;inset:0;display:flex;align-items:center;justify-content:center;
+    padding:24vh 9vw 10vh;opacity:0;pointer-events:none;transition:opacity .45s ease;
+    background:rgba(233,231,224,.94);mix-blend-mode:normal;
+  }
+  .composite-text {
+    max-width:1100px;text-align:center;font-size:clamp(1.15rem,2.1vw,2rem);
+    line-height:1.22;font-weight:400;
+  }
+  .traffic-page.snapshot .composite { opacity:1; }
+  .traffic-page.snapshot .traffic-field { opacity:.08;transition:opacity .45s ease; }
+
+  /* Single-poem reading state: clicking a block freezes traffic and opens that poem. */
+  .single-poem {
+    position:absolute; z-index:200; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    padding:8vh 10vw;
+    opacity:0; pointer-events:none;
+    background:rgba(233,231,224,.97);
+    transition:opacity .28s ease;
+    overflow:auto;
+  }
+  .single-poem.active { opacity:1; pointer-events:auto; cursor:pointer; }
+  .single-poem-text {
+    width:min(900px,100%);
+    max-height:84vh; overflow:auto;
+    white-space:pre-wrap;
+    font-size:clamp(1.05rem,1.55vw,1.55rem);
+    line-height:1.28; font-weight:400;
+    cursor:pointer;
+  }
+  .traffic-page.single-open .traffic-field { opacity:.04; transition:opacity .28s ease; }
+  .traffic-page.single-open .composite { opacity:0 !important; pointer-events:none; }
+  .traffic-page.single-open .traffic-light-block { opacity:.04; pointer-events:none; }
+
+  @media (max-width:700px) {
+    body{overflow:auto}.traffic-page{min-height:900px;height:100vh}
+    .traffic-field{grid-template-columns:repeat(5,1fr);grid-template-rows:repeat(4,1fr);}
+    .traffic-block:nth-child(n){grid-column:auto;grid-row:auto}
+    .traffic-title{top:34%}.traffic-title h1{font-size:2.4rem}
+    .traffic-segment{font-size:1.4rem}
+    .composite{padding:10vh 8vw}.composite-text{font-size:1.2rem}
+  }
+
+
+  .traffic-light-block{
+    position:absolute;
+    left:50%;
+    top:3%;
+    transform:translateX(-50%);
+    width:48px;
+    height:48px;
+    z-index:100;
+    display:grid;
+    place-items:center;
+    border:1px solid rgba(20,20,20,.18);
+    background:rgba(238,236,229,.75);
+  }
+  .traffic-light-button{
+    width:28px;
+    height:28px;
+    padding:0;
+    border:1px solid rgba(20,20,20,.35);
+    border-radius:50%;
+    background:transparent;
+    display:grid;
+    place-items:center;
+    cursor:pointer;
+  }
+  .traffic-light-dot{
+    display:block;
+    width:15px;
+    height:15px;
+    border-radius:50%;
+    background:#23833b;
+    box-shadow:0 0 8px rgba(35,131,59,.30);
+    transition:transform .12s ease,background .2s ease,box-shadow .2s ease;
+  }
+  .traffic-page.snapshot .traffic-light-dot{
+    background:#b32121;
+    box-shadow:0 0 8px rgba(179,33,33,.30);
+  }
+  .traffic-light-button:hover .traffic-light-dot{transform:scale(1.08)}
+  .traffic-light-button:active .traffic-light-dot{transform:scale(.94)}
+  .sr-only{
+    position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+    overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;
+  }
+
+</style>
+</head>
+<body>
+<div class="traffic-page" id="page">
+<div class="traffic-light-block"><button id="snapshotButton" class="traffic-light-button" type="button" aria-label="Stop traffic and take a snapshot"><span class="traffic-light-dot" aria-hidden="true"></span><span class="sr-only">Stop traffic and take a snapshot</span></button></div>
+
+  <main class="traffic-field">
+    <article class="traffic-block horizontal b1" data-axis="x" data-direction="-1">
+<div class="traffic-viewport"><div class="traffic-track"></div></div></article>
+    <article class="traffic-block horizontal b2" data-axis="x" data-direction="1" data-reverse="true">
+<div class="traffic-viewport"><div class="traffic-track"></div></div></article>
+    <article class="traffic-block vertical b3" data-axis="y" data-direction="1" data-reverse="true">
+<div class="traffic-viewport"><div class="traffic-track"></div></div></article>
+    <article class="traffic-block horizontal b4" data-axis="x" data-direction="-1">
+<div class="traffic-viewport"><div class="traffic-track"></div></div></article>
+    <article class="traffic-block vertical b5" data-axis="y" data-direction="-1">
+<div class="traffic-viewport"><div class="traffic-track"></div></div></article>
+    <article class="traffic-block horizontal b6" data-axis="x" data-direction="1" data-reverse="true">
+<div class="traffic-viewport"><div class="traffic-track"></div></div></article>
+    <article class="traffic-block vertical b7" data-axis="y" data-direction="-1">
+<div class="traffic-viewport"><div class="traffic-track"></div></div></article>
+    <article class="traffic-block horizontal b8" data-axis="x" data-direction="-1">
+<div class="traffic-viewport"><div class="traffic-track"></div></div></article>
+    <article class="traffic-block horizontal b9" data-axis="x" data-direction="1" data-reverse="true">
+<div class="traffic-viewport"><div class="traffic-track"></div></div></article>
+    <article class="traffic-block vertical b10" data-axis="y" data-direction="1" data-reverse="true">
+<div class="traffic-viewport"><div class="traffic-track"></div></div></article>
+  </main>
+
+  <section class="composite" aria-label="Composite poem">
+    <div class="composite-text" id="compositeText"></div>
+  </section>
+
+  <section class="single-poem" id="singlePoem" aria-hidden="true">
+    <div class="single-poem-text" id="singlePoemText"></div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const source = {
+    1: `The design of pavement, computation of capacity (roadway) determined by volume and weather studies on exacted (same roadway) (conditionally) passages are mother to compositional decisions, consistencies (variable) what will make a subgrade base then one to two layers fortified (of tack or other coating). Petcoke, a biproduct of refining, often used alongside aggregates to aggregate the base layer (rock base or bitumen or etc base), and then cement (slip-form-paver-fed base) ices the top. This binding, it is only one (thin) layer but is the thin visible (layer) and the color and texture drivers know best. In quick projects asphalt tops (flexible, low-cost) may replace cement and may sit between four and twelve inches, depth relative to road use conditions and lower layer heights. Asphalt is also found below. Pavers (when well kept) distribute from interior hoppers asphalt, use rollers (to roll flat the roadway). This is the genesis of the subgrade. The excavators and diggers that pre-prepare the landscape (razed, thus razed) prior to are all essential machinery, operated by licensed professionals (licensed) (professional) and sometimes included in “big truck” and “construction” themed children’s play sets.`,
+    2: `It isn’t to resemble a pylon, a median, a wide-based and block-built thing, so much as to resemble a small and bright tower, unobstructive to traffic flow, risen in the middle of a central reservation meant for division—but only in a referential sense—as somewhat more than a county ordinance but decidedly less than a wall and being defined within such a moderation of distance from one parcel of land to another or one roadside county definition point to an oppositional marker that makes you feel a kind of relationship, a being between things in such a way that you’re referenced as geographic indicator or obstacle or better still as a middle point triangulated with two other items in the horizon, held, in a mind, in a way, alongside vantage points regarded by others as simple referential towers amidst the construction project, as essential to their everyday or at least familiar in the sense that they might give directions by them or not feel startled when they appear in their dreams.`,
+    3: `In repeat high volume traffic conditions it is easy to associate vehicular behaviors with the behavior of the people, or at least of the driver, within a given vehicle, though one should separate character from operation within any given system—or perhaps one should not, but character is seldom evaluated in any manner of professional traffical study. In determining the PCU, or passenger car unit, a figure in standard equations, one equates a car with one, a truck with three, a motorcycle with point five (confusingly), a cycle rickshaw with one point five, a horsedrawn vehicle, four, a bus, in Denver, with eight, and though uncommon, a small bull-pulled cart with six.`,
+    4: `I like to think that traffic is everything I need to understand people. To understand people traffic is everything I need to like to think. To think, to like, to understand people, traffic: everything that I need. To understand everything that people need, I like to think of traffic. I think of people, traffic, everything. I understand. Like, I think of that. Think everything, people of traffic, understand that I like. Traffic, I think, is people, like the need to understand is everything. Traffic is need, is, I understand, what people think of as everything. Everything is need. People that think of traffic, understand. I like it. I like traffic, I need that, people. Everything, I think I understand. People, understand I need, think of everything like traffic. Understand that I think people need to like everything of traffic. Every people thing is traffic that I like to understand. People everything that I like to traffic of understanding. Traffic is what I think I need to understand everything of people.`,
+    5: `Origin and destination study, commonly known as O&D, is one component of traffic census data collection meant for determining patterns and referential markers, geographic layout, laning, the overall safe construction to encourage efficient movement. It’s one of many areas, alongside speed studies (spot speed, speed and delay), volume and capacity studies, flow studies, parking studies, and, sadly, the study of traffic accidents, that one undertakes when pursuing a degree in traffic engineering. Common questions might be point-of-origin, where someone is heading, with how many others, under what present and historical road conditions, with what regularity, if one prefers driving under conditions of high volume (thus of considering the needs and presences of others), if one performs regular vehicular maintenance (thus considering the needs and safety of others), what relationship one has with methods of traffic enforcement (signs and signals, local police), how one feels about where they’re coming from, about where they believe they have to go. O&D study methods can include the tracking of mobile data, license plate monitoring, MAC address detection which relies on other wireless signals clocked at sensors around points of interest. Previously—and still today in rural locations—mail back surveys and roadside interviews were the best means of assessment. The time spent speaking with people, however, proved extensive, expensive, and exhausting for roadside engineers often ill-suited for in-person data retrieval.`,
+    6: `Red truck, white truck, red truck, semi (unloaded), red and white sedan, blue car, SUV, white truck, SUV, SUV, gray car, six birds, SUV, cyclist, red truck, blue sedan, green car, black truck, SUV, pedestrian, green car, SUV, SUV, white car, white car, blue car, SUV, SUV, SUV, SUV, cyclist, dump truck, white car, SUV, white car, blue and yellow truck, red car, SUV, SUV, cyclist, SUV, black and white truck, box truck, blue van, silver sedan, SUV, white car, SUV, SUV, cyclist, cop, black truck, red car, SUV, green car, green car, white car, white truck, cyclist, SUV, white truck, red van, SUV, SUV, white van, box truck, white van, cyclist, cyclist, cyclist, SUV.`,
+    7: `In general, in any analyses, in any project, class of traffic and time-based variations (seasonal, hourly) must be considered, registered in the form of data gathered by mechanical means or by manually using pneumatic tubes or multi-pen recorders. Fluctuations, invariably, can be expected. An important figure in analysis, the thirtieth highest hourly volume, statistically significant in calculations of congestion, as it’s only acceptable to allow for outliers that occur for twenty-nine hours inside of a year, hours of holidays, often, and anomalous metrics when people come together or they need to get away, and unpredictable scenarios as in the winning of the World Series, the blocking of alternate roadways (construction, say) or accident, or anomalous attractions like new storefronts, wildlife, and unidentified aerial phenomena.`,
+    8: `no one can say it isn’t pleasant to where on the road-way cause-way high-kept clouds pink from committals way where go by-way by no one can say that the warbling isn’t happy holiday cement and idle to relevate nature’s deft knack at true buffalo grass flats it is more delectation at measuring less than at the true lines vroom advancement those in competing lanes bringing secretly presence participation to mind collapse at the north covered off of when there are more shores than it’s really no better way to spend the afternoon i am here after more again but not an uncommon brace yourself blue thunderbirds bearing straight uncommon perdition when weather and petrolheads accelerate to nothing less than the wingless passengers exceedingly want then colors I press my hand digress to hold each other sometimes the window of the red yellow car gray beside sure who’s to say or that this isn’t heaven more patient even.`,
+    9: `the dashed white lines are ten feet long with thirty between them yes my lands the world is different at speed`,
+    10: `when i am driving at night i am allowed to participate in how julia whitty says we see the ocean through the ocean since our eyes are made of salt water it’s something i like to think that my traffic of cells and blood and what new materialists might call intra-actions can make me one who is made of traffic intersections somatic there is that tweet i’ve never contributed to traffic in my entire life that’s all on y’all that makes me think of the line from edward o wilson to explore and affiliate with life ellipsis our spirit is woven from it hope rises on its currents`,
+  };
+
+
+  function stripPunctuation(s){
+    return s.replace(/[.,;:!?()[\]{}"'“”‘’—–-]/g,'');
+  }
+  Object.keys(source).forEach(k => { source[k] = stripPunctuation(source[k]); });
+  // Keep the original poems separately so the reading state can restore punctuation and lineation.
+  const originalSource = {
+    1: `The design of
+pavement, computation of capacity (roadway) determined
+
+by volume and
+weather studies on exacted (same roadway) (conditionally)
+
+passages are
+mother to compositional decisions, consistencies (variable) what will make
+
+a subgrade base
+then one to two layers fortified (of tack or other coating).
+
+Petcoke, a
+biproduct of refining, often used alongside aggregates to aggregate
+
+the base layer
+(rock base or bitumen or etc base), and then cement (slip-form-paver-fed base) 
+
+ices the top.
+This binding, it is only one (thin) layer but is the thin visible (layer) and the
+color 
+
+and texture drivers
+know best. In quick projects asphalt tops (flexible, low-cost) may replace
+
+cement and may
+sit between four and twelve inches, depth relative to road use conditions
+
+and lower layer
+heights. Asphalt is also found below. Pavers (when well kept) distribute from 
+
+interior hoppers
+asphalt, use rollers (to roll flat the roadway). This is the genesis of the subgrade.
+
+
+
+The excavators
+and diggers that pre-prepare the landscape (razed, thus razed) prior to                         
+
+are all essential
+machinery, operated by licensed professionals (licensed) (professional) and 
+
+sometimes
+included in “big truck” and “construction” themed children’s play sets.`,
+    2: `It isn’t to
+resemble a pylon, a median, a wide-based
+
+and block-built
+thing, so much as to resemble a small
+
+and bright tower,
+unobstructive to traffic flow,
+
+    risen
+
+in the middle of
+a central reservation meant for division—
+
+but only in a
+referential sense—as somewhat
+
+more than a
+county ordinance but decidedly less than
+
+a wall and being
+defined within such a moderation of distance
+
+from one parcel
+of land to another or one roadside
+
+county
+definition point to an oppositional marker
+
+that makes you
+feel a kind of relationship,
+
+        a being
+
+between things
+in such a way that you’re referenced
+
+as geographic indicator
+or obstacle or better still
+
+as a middle
+point triangulated with two other items in the horizon,
+
+                  held,
+
+in a mind, in a
+way, alongside vantage points regarded by others
+
+as simple
+referential towers amidst the construction project,
+
+as essential to
+their everyday or at least familiar
+
+in the sense
+that they might give directions by them
+
+or not feel
+startled when they appear in their dreams.`,
+    3: `In repeat high
+volume traffic conditions
+
+it is easy to
+associate vehicular behaviors
+
+with the
+behavior of the people,
+
+or at least of the
+driver,
+
+within a given vehicle,
+
+though one
+should separate character from operation
+
+within any given
+system—or perhaps
+
+one should not,
+but character
+
+is seldom
+evaluated in any manner
+
+of professional
+traffical study. In determining
+
+the PCU, or
+passenger car unit,
+
+a figure in
+standard equations, one equates
+
+a car with one,
+a truck with three,
+
+a motorcycle
+with point five (confusingly), a cycle
+
+rickshaw with
+one point five, a horsedrawn
+
+vehicle, four, a
+bus, in Denver,
+
+with eight, and
+though uncommon,
+
+a small
+bull-pulled cart with six.`,
+    4: `I like to think
+that traffic is everything
+
+I need to
+understand people.
+
+To understand
+people traffic is everything
+
+I need to like
+to think.
+
+To think, to
+like, to understand people,
+
+traffic: everything
+that I need.
+
+To understand
+everything that people
+
+need, I like to think
+of traffic.
+
+I think of people,
+traffic, everything.
+
+I understand. Like,
+I think of that.
+
+Think
+everything, people of traffic,
+
+understand that
+I like.
+
+Traffic, I
+think, is people, like
+
+the need to
+understand is everything.
+
+Traffic is need,
+is, I understand,
+
+what people
+think of as everything.
+
+Everything is
+need. People that think
+
+of traffic,
+understand. I like it.
+
+I like traffic,
+I need that, people.
+
+Everything, I
+think I understand.
+
+People,
+understand I need, think of
+
+everything like
+traffic.
+
+Understand that
+I think people
+
+need to like
+everything of traffic.
+
+Every people
+thing is traffic
+
+that I like to
+understand.
+
+People
+everything that I like
+
+to traffic of
+understanding.
+
+Traffic is what
+I think I need
+
+to understand
+everything of people.`,
+    5: `Origin and
+destination study, commonly known as
+
+O&D, is one component of traffic census
+
+data collection
+meant for determining patterns
+
+and referential
+markers, geographic layout, laning, the
+
+overall safe
+construction to
+
+encourage
+efficient movement. It’s one of
+
+many areas,
+alongside speed studies (spot speed,
+
+speed and
+delay), volume and capacity studies,
+
+flow studies,
+parking studies, and, sadly,
+
+the study of
+traffic accidents, that one undertakes when
+
+pursuing a
+degree in traffic engineering.
+
+Common questions
+might be point-of-origin,
+
+where someone is
+heading, with how many others,
+
+under what present
+and historical road conditions,
+
+with what
+regularity, if one prefers
+
+driving under
+conditions
+
+of high volume
+(thus of considering the needs
+
+and presences of
+others), if one
+
+performs regular
+vehicular maintenance
+
+(thus
+considering the needs
+
+and safety of
+others), what relationship
+
+one has with
+methods of traffic enforcement
+
+(signs and
+signals, local police), how one feels
+
+about where
+they’re coming from, about where
+
+they believe
+they have to go.
+
+O&D study
+methods can include the tracking
+
+of mobile data,
+license plate
+
+monitoring, MAC
+address detection
+
+which relies on
+other wireless signals
+
+clocked at
+sensors around points of interest. Previously—
+
+and still today in
+rural locations—mail back surveys
+
+and roadside
+interviews were the best means of assessment.
+
+The time spent speaking
+with people, however, 
+
+proved extensive,
+expensive, and exhausting
+
+for roadside
+engineers often ill-suited for
+
+in-person data retrieval.`,
+    6: `Red truck, white
+truck, red truck,
+
+semi (unloaded),
+red and white sedan,
+
+blue car, SUV,
+white truck,
+
+SUV, SUV, gray
+car, six birds,
+
+SUV, cyclist,
+red truck, blue sedan,
+
+green car, black
+truck, SUV,
+
+pedestrian, green
+car, SUV, SUV,
+
+white car, white
+car, blue car, SUV,
+
+SUV, SUV, SUV,
+SUV,
+
+cyclist, dump
+truck, white car, SUV,
+
+white car, blue and
+yellow truck, red car, SUV,
+
+SUV, SUV,
+cyclist, SUV,
+
+black and white
+truck, box truck, blue van,
+
+silver sedan,
+SUV, white car, SUV,
+
+SUV, SUV,
+cyclist, cop,
+
+black truck, red
+car, SUV, green car,
+
+green car, white
+car, white truck, cyclist,
+
+SUV, white
+truck, red van, SUV,
+
+SUV, white van,
+box truck, white van,
+
+cyclist,
+cyclist, cyclist, SUV.`,
+    7: `In general, in
+
+any analyses,
+
+in any project, class
+of traffic
+
+and time-based
+
+variations
+(seasonal,
+
+hourly)
+
+must be
+considered,
+
+registered in
+the form of
+
+data gathered
+
+by mechanical
+
+means or by
+manually
+
+using
+
+pneumatic tubes
+
+or multi-
+
+pen recorders.
+
+Fluctuations, invariably,
+can be expected.
+
+An important
+figure
+
+in analysis,
+
+the thirtieth
+highest
+
+hourly volume,
+
+statistically significant
+
+in calculations
+
+of congestion,
+
+as it’s only
+
+acceptable to
+allow
+
+for outliers that
+occur
+
+for twenty-nine
+hours inside of a year,
+
+hours of holidays,
+
+often,
+
+and anomalous
+
+metrics when
+people
+
+come together
+
+or they need to
+
+get away,
+
+and
+unpredictable scenarios as in the winning
+
+of the World
+Series,
+
+the blocking of
+
+alternate roadways
+
+(construction,
+say)
+
+or accident,
+
+or anomalous
+
+attractions
+
+like new
+
+storefronts,
+
+wildlife,
+
+and uni-
+
+dentified aerial
+phenomena.`,
+    8: `no one can say
+it isn’t pleasant to
+
+where on the
+road-way cause-way high-
+
+kept clouds
+
+pink from     
+
+committals
+
+ way
+
+                      where
+
+                                  go      by-way by
+
+no one can say
+that 
+
+ the warbling
+isn’t
+
+                 happy holiday
+
+cement and idle
+
+to relevate
+
+nature’s deft
+
+knack                         at
+
+true    buffalo
+
+      grass    flats
+
+it is more
+delectation at measuring
+
+ less than at
+
+                 the true lines
+
+vroom
+advancement
+
+those in
+competing lanes
+
+bringing
+secretly presence
+
+participation to
+mind
+
+*
+
+collapse at the
+north covered 
+
+off of        when there
+
+are more          
+
+ shores than
+
+                  it’s really
+
+            no better way to spend
+
+  the afternoon     i am here
+
+after more again
+but not an uncommon
+
+                                                    brace
+
+           yourself        blue      thunderbirds
+
+    bearing straight
+
+uncommon
+perdition
+
+when weather and
+petrolheads
+
+accelerate to
+nothing
+
+less than
+
+*
+
+the wingless
+passengers exceedingly          want
+then
+
+colors
+
+I press my hand
+
+                                  digress to
+hold each
+
+other
+
+sometimes
+
+the window of the red
+yellow car gray beside 
+
+sure
+
+who’s to say
+
+or that this
+isn’t
+
+heaven more
+
+       patient
+
+even`,
+    9: `the dashed white
+
+lines are ten
+feet
+
+long with thirty
+
+between them yes
+
+my lands the
+world is
+
+different at
+speed`,
+    10: `when i am
+driving
+
+at night i am
+allowed to
+
+participate in
+how julia
+
+whitty says we
+see the ocean
+
+through the
+ocean since our eyes
+
+are made of salt
+
+water it’s something
+I like to think
+
+that my traffic of
+cells and blood and what new
+
+materialists
+might call
+
+intra-actions
+
+can make me one
+
+who is made of
+traffic
+
+intersections
+somatic there
+
+is that tweet
+
+*i’ve never
+contributed to traffic in my entire life*
+
+*that’s all on
+y’all*
+
+that makes me think
+of edward the
+
+line from
+
+edward o wilson
+t*o*
+
+*explore and
+affiliate with life*
+ellipsis
+
+*our spirit is
+woven from it*
+
+*hope rises*
+
+*on its currents*`
+  };
+
+
+  const blocks=[...document.querySelectorAll('.traffic-block')];
+  const page=document.getElementById('page');
+  const snapshotZone=null;
+  const compositeText=document.getElementById('compositeText');
+  const singlePoem=document.getElementById('singlePoem');
+  const singlePoemText=document.getElementById('singlePoemText');
+  let singleOpen=null;
+
+  function openSinglePoem(index){
+    if(snapshot) return;
+    singleOpen=index;
+    singlePoemText.textContent=originalSource[index];
+    singlePoem.classList.add('active');
+    singlePoem.setAttribute('aria-hidden','false');
+    page.classList.add('single-open');
+  }
+
+  function closeSinglePoem(){
+    if(singleOpen===null) return;
+    singleOpen=null;
+    singlePoem.classList.remove('active');
+    singlePoem.setAttribute('aria-hidden','true');
+    page.classList.remove('single-open');
+  }
+
+
+  const modes=[
+    {axis:'x',dir:-1,speed:1.52},{axis:'x',dir:1,speed:.78},
+    {axis:'y',dir:1,speed:1.00},{axis:'x',dir:-1,speed:1.26},
+    {axis:'y',dir:-1,speed:1.62},{axis:'x',dir:1,speed:.58},
+    {axis:'y',dir:-1,speed:1.12},{axis:'x',dir:-1,speed:.52},
+    {axis:'x',dir:1,speed:.84},{axis:'y',dir:1,speed:1.82}
+  ];
+
+  const state=blocks.map((el,i)=>{
+    const track=el.querySelector('.traffic-track'),axis=el.dataset.axis;
+    const direction=Number(el.dataset.direction);
+    let words=source[i+1].trim().split(/\s+/);
+    if(el.dataset.reverse==="true") words.reverse();
+
+    function makeSegment(){
+      const s=document.createElement('div');
+      s.className='traffic-segment';
+
+      if(axis==='y'){
+        s.innerHTML=words.map(w=>`<span class="word">${w}</span>`).join('');
+      }else{
+        s.textContent=words.join(' ');
+      }
+
+      return s;
+    }
+
+    const a=makeSegment(),b=makeSegment();track.append(a,b);
+    return {el,track,segment:a,axis,direction,speed:modes[i].speed,attention:0,position:0,segmentLength:0};
+  });
+
+  function measureAndSeed(){
+    state.forEach(s=>{
+      const r=s.segment.getBoundingClientRect();
+      s.segmentLength=s.axis==='x'?r.width:r.height;
+      s.position=s.direction<0 ? -s.segmentLength*.22 : -s.segmentLength*.78;
+    });
+  }
+
+  /*
+    The composite is deliberately not a seventh/eighth poem.
+    It is assembled from the seven streams at the instant of stopping:
+    one fragment from each, preserving their simultaneous condition.
+  */
+  /*
+    The snapshot uses only words actually visible in the seven viewports
+    at the instant the reader enters the center. Nothing hidden is sampled.
+  */
+  /*
+    Snapshot the actual glyphs currently intersecting each viewport.
+    Horizontal streams are measured character-by-character so the snapshot
+    contains only text that is physically on screen at the moment of entry.
+    Vertical streams continue to use their individual word elements.
+  */
+  function buildComposite(){
+    const visible=[];
+
+    state.forEach(s=>{
+      const viewport=s.el.querySelector('.traffic-viewport');
+      const vr=viewport.getBoundingClientRect();
+
+      if(s.axis==='y'){
+        const words=[...s.segment.querySelectorAll('.word')];
+        const onScreen=[];
+
+        words.forEach(word=>{
+          const r=word.getBoundingClientRect();
+          const cx=r.left+r.width/2;
+          const cy=r.top+r.height/2;
+
+          if(r.left>=vr.left && r.right<=vr.right && r.top>=vr.top && r.bottom<=vr.bottom){
+            onScreen.push(word.textContent.trim());
+          }
+        });
+
+        if(onScreen.length) visible.push(onScreen.join(' '));
+        return;
+      }
+
+      /*
+        Horizontal streams are captured as whole words. A word is included
+        only when its entire bounding box is inside the viewport, so a word
+        clipped by either edge is omitted rather than truncated.
+      */
+      const words=s.segment.textContent.trim().split(/\s+/);
+      if(!words.length) return;
+
+      const live=s.segment.getBoundingClientRect();
+      const clone=s.segment.cloneNode(false);
+      clone.style.position='fixed';
+      clone.style.left=`${live.left}px`;
+      clone.style.top=`${live.top}px`;
+      clone.style.transform='none';
+      clone.style.visibility='hidden';
+      clone.style.pointerEvents='none';
+      clone.style.whiteSpace='nowrap';
+      clone.style.width='max-content';
+      clone.textContent='';
+
+      const spans=words.map((word,i)=>{
+        const span=document.createElement('span');
+        span.textContent=(i?' ':'')+word;
+        span.style.display='inline';
+        clone.appendChild(span);
+        return span;
+      });
+
+      document.body.appendChild(clone);
+
+      const captured=[];
+      spans.forEach(span=>{
+        const r=span.getBoundingClientRect();
+        if(r.left>=vr.left && r.right<=vr.right &&
+           r.top>=vr.top && r.bottom<=vr.bottom){
+          captured.push(span.textContent.trim());
+        }
+      });
+
+      clone.remove();
+
+      if(captured.length) visible.push(captured.join(' '));
+    });
+
+    compositeText.textContent=visible.join('   ');
+  }
+
+  let snapshot=false;
+
+
+  const snapshotButton = document.getElementById('snapshotButton');
+  snapshotButton.addEventListener('click', (event) => {
+    event.preventDefault();
+
+    if (!snapshot) {
+      // Capture first, while the streams are still in their exact current positions.
+      buildComposite();
+      snapshot = true;
+      page.classList.add('snapshot');
+      snapshotButton.setAttribute('aria-label','Restart traffic');
+      snapshotButton.setAttribute('aria-label','Restart traffic');
+    } else {
+      snapshot = false;
+      page.classList.remove('snapshot');
+      snapshotButton.setAttribute('aria-label','Stop traffic and take a snapshot');
+      snapshotButton.setAttribute('aria-label','Stop traffic and take a snapshot');
+    }
+  });
+
+  blocks.forEach((block,i)=>{
+    block.addEventListener('click',()=>openSinglePoem(i+1));
+  });
+  singlePoem.addEventListener('click',closeSinglePoem);
+  document.addEventListener('keydown',event=>{
+    if(event.key==='Escape') closeSinglePoem();
+  });
+
+  let last=performance.now();
+
+  function frame(now){
+    const dt=Math.min(40,now-last);last=now;
+
+    state.forEach(s=>{
+      const hovered=s.el.matches(':hover');
+      const target=hovered?1:0;
+
+      /* Nearly imperceptible, very gradual slowing; it remains in motion. */
+      const response=hovered?.010:.006;
+      s.attention+=(target-s.attention)*Math.min(1,response*dt);
+
+      const speed=s.speed*(1-s.attention*.52);
+      const effectiveSpeed=(snapshot || singleOpen!==null)?0:speed;
+
+      s.position+=s.direction*effectiveSpeed*(dt/16.67);
+
+      const L=s.segmentLength||1;
+      if(s.position<=-L)s.position+=L;
+      if(s.position>=0)s.position-=L;
+
+      s.track.style.transform=s.axis==='x'
+        ? `translate3d(${s.position}px,-50%,0)`
+        : `translate3d(-50%,${s.position}px,0)`;
+    });
+
+    requestAnimationFrame(frame);
+  }
+
+  measureAndSeed();
+  window.addEventListener('resize',measureAndSeed);
+  requestAnimationFrame(frame);
+})();
+
+</script>
+</body>
+</html>
